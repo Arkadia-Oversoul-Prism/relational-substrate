@@ -1,11 +1,39 @@
 # AUTHORITY-CLOSURE-01
 
 **Type:** state-of-the-system evidence record (not an architecture document)
-**As of:** commit `fde9a1b` (local `main`), 2026-10-01
+**As of:** commit `b2b9495` (local `main`), 2026-10-01
 **Purpose:** a current authority map — every line carries an evidence reference.
 
-> This is not a "system is ready" statement. It records what is enforced, what is
-> only declared, and what is absent. The absences are the point.
+## STATE := PRE-PRODUCTION
+
+> The code-level perimeter is substantially improved and the governance model is
+> partially enforced. **The Arkadia authority plane is not production-ready.**
+> The live process is still running with development authentication (E2, E3,
+> E16). Read every line below through that lens.
+
+This state is deliberately loud, because the distinction must be impossible to
+miss: strong enforcement in code does not become a production posture until the
+environment is changed and independently verified.
+
+```
+PRE-PRODUCTION                    ◀── we are here
+    │
+    │ human-authorized deployment configuration   (PRODUCTION-POSTURE-ENABLEMENT-01)
+    ▼
+PRODUCTION-AUTHENTICATED
+    │
+    │ independent verification                    (§5 checklist)
+    ▼
+PRODUCTION-AUTHENTICATED / VERIFIED
+    │
+    │ human authority ceremony                    (FLAMEKEEPER-PROVISIONING-CEREMONY-01)
+    ▼
+SOVEREIGN AUTHORITY PROVISIONED
+```
+
+The marker is removed only when the environment is genuinely
+production-authenticated **and** independently verified — not when the code is
+merged.
 
 ---
 
