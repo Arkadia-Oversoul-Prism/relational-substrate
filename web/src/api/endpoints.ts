@@ -43,7 +43,9 @@ export const arkDate = () => api.get<Record<string, unknown>>("/api/ark-date", {
 export const openLoops = () => api.get<OpenLoops>("/api/open-loops", { auth: false });
 export const codexTree = () => api.get<CodexTree>("/api/codex/github-tree", { auth: false });
 export const publicNodes = () => api.get<{ nodes: NodeSummary[]; count: number }>("/api/nodes/public", { auth: false });
-export const tools = () => api.get<{ tools: ToolManifest[] }>("/api/tools", { auth: false });
+// /api/tools requires authentication (the catalog exposes which capabilities,
+// and which require approval, exist on the host) — send the bearer token.
+export const tools = () => api.get<{ tools: ToolManifest[] }>("/api/tools");
 export const sources = () => api.get<{ sources: SourceInfo[] }>("/api/sources", { auth: false });
 export const approvals = () => api.get<{ approvals: Approval[] }>("/api/approvals");
 

@@ -15,6 +15,18 @@ from api.auth import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_dependency_overrides():
+    """This module installs a *global* ``require_auth`` override to impersonate
+    callers. Clear it afterwards so later modules exercise the real auth
+    dependency rather than inheriting a permissive override."""
+    yield
+    from api.auth import require_auth
+    from api.main import app
+
+    app.dependency_overrides.pop(require_auth, None)
+
+
 def test_normalize_handle_accepts_at_and_case():
     assert normalize_handle("@Alice") == "alice"
     assert normalize_handle("Alice") == "alice"
