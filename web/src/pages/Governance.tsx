@@ -65,7 +65,8 @@ export function Governance() {
           The substrate cannot originate authority. It represents authority up to level 2 (PREPARE) and records — but never self-sets — the
           human-only levels. This is a design invariant of the code, not a policy layered on top of it.
         </p>
-        <table className="table">
+        <div className="table-wrap">
+<table className="table">
           <thead><tr><th>Level</th><th>Name</th><th>Reachability</th></tr></thead>
           <tbody>
             {AUTHORITY_LEVELS.map(([lvl, name, note]) => (
@@ -79,6 +80,7 @@ export function Governance() {
             ))}
           </tbody>
         </table>
+</div>
       </Card>
 
       <div className="grid cols-2">
@@ -125,7 +127,8 @@ export function Governance() {
 
       <div className="grid cols-2">
         <Card title="Governance roles">
-          <table className="table">
+          <div className="table-wrap">
+<table className="table">
             <thead><tr><th>Role</th><th>Permissions</th></tr></thead>
             <tbody>
               {Object.entries(ROLES).map(([name, r]) => (
@@ -136,6 +139,7 @@ export function Governance() {
               ))}
             </tbody>
           </table>
+</div>
         </Card>
 
         <Card title="Boundaries">
@@ -157,7 +161,8 @@ export function Governance() {
       <Card title="Approvals queue" actions={approvals.data && <Pill tone="muted">{approvals.data.approvals.length}</Pill>}>
         <Async state={approvals} empty={(d) => d.approvals.length === 0}>
           {(d) => (
-            <table className="table">
+            <div className="table-wrap">
+<table className="table">
               <thead><tr><th>Approval</th><th>Status</th><th>Detail</th></tr></thead>
               <tbody>
                 {d.approvals.map((a) => (
@@ -169,6 +174,7 @@ export function Governance() {
                 ))}
               </tbody>
             </table>
+</div>
           )}
         </Async>
       </Card>

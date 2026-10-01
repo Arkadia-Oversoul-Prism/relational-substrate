@@ -178,7 +178,8 @@ export function KnowledgeGraph() {
         <Card title="Relationship distribution">
           <Async state={rel}>
             {(d) => (
-              <table className="table">
+              <div className="table-wrap">
+<table className="table">
                 <thead>
                   <tr><th>Type</th><th>Direction</th><th className="right">Count</th></tr>
                 </thead>
@@ -192,6 +193,7 @@ export function KnowledgeGraph() {
                   ))}
                 </tbody>
               </table>
+</div>
             )}
           </Async>
         </Card>
@@ -217,7 +219,8 @@ export function KnowledgeGraph() {
           ) : (
             <Async state={rel}>
               {(d) => (
-                <table className="table">
+                <div className="table-wrap">
+<table className="table">
                   <thead><tr><th>Node</th><th>Type</th><th className="right">Degree</th></tr></thead>
                   <tbody>
                     {d.top_connected_nodes.map((n) => (
@@ -229,6 +232,7 @@ export function KnowledgeGraph() {
                     ))}
                   </tbody>
                 </table>
+</div>
               )}
             </Async>
           )}

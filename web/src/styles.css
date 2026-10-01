@@ -31,6 +31,14 @@
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 12px 32px -18px #000000cc;
+
+  /* Safe-area insets so the app respects notches, status bar and gesture bar. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --appbar-h: 56px;
+  --bottomnav-h: 60px;
 }
 
 * { box-sizing: border-box; }
@@ -47,6 +55,10 @@ body {
   font-size: 14px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  /* Kill the grey tap flash and double-tap zoom delay on Android. */
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -75,6 +87,7 @@ button { font-family: inherit; cursor: pointer; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
 .brand-title { font-weight: 650; letter-spacing: 0.2px; }
 .brand-sub { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+.drawer-close { display: none; }
 
 .nav-group { margin-bottom: 14px; }
 .nav-group-title {
@@ -99,27 +112,47 @@ button { font-family: inherit; cursor: pointer; }
   background: #0b0c14cc; backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 20;
 }
-.topbar h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.topbar h1 { font-size: 15px; margin: 0; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .spacer { flex: 1; }
 .topbar-meta { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); }
 
+/* Hamburger — hidden on desktop, shown in the mobile app bar. */
+.topbar-menu {
+  display: none; flex-direction: column; justify-content: center; gap: 4px;
+  width: 40px; height: 40px; padding: 0 9px; margin-left: -6px;
+  border: none; background: transparent; border-radius: 10px;
+}
+.topbar-menu span { display: block; height: 2px; width: 100%; background: var(--ink-dim); border-radius: 2px; }
+.topbar-menu:active { background: #ffffff10; }
+
+.drawer-backdrop { display: none; }
+
+/* Bottom navigation — mobile only. */
+.bottom-nav { display: none; }
+
 .page { padding: 24px 26px 60px; max-width: 1320px; width: 100%; }
+
+/* Sign-in renders outside the shell; give it its own responsive frame. */
+.signin-page { max-width: 900px; padding: 40px 26px 60px; margin: 0 auto; }
 
 /* ── Primitives ─────────────────────────────────────────────────────────── */
 .card {
   background: var(--bg-panel); border: 1px solid var(--line-soft);
   border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
+  min-width: 0;
 }
 .card-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1.1px; color: var(--ink-faint); font-weight: 600; margin: 0 0 12px; }
 
-.grid { display: grid; gap: 14px; }
+/* minmax(0, 1fr) lets tracks shrink below their content's min-content width,
+   which long unbreakable identifiers would otherwise force wider than the viewport. */
+.grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-@media (max-width: 1080px) { .grid.cols-4 { grid-template-columns: repeat(2, 1fr); } .grid.cols-3 { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 720px) { .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; } }
+@media (max-width: 1080px) { .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: minmax(0, 1fr); } }
 
-.stat { display: flex; flex-direction: column; gap: 4px; }
+.stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--ink-faint); }
 .stat-value { font-size: 26px; font-weight: 650; font-family: var(--mono); letter-spacing: -0.5px; }
 .stat-sub { font-size: 11.5px; color: var(--ink-faint); }
@@ -209,8 +242,8 @@ pre.json {
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip { font-size: 11px; font-family: var(--mono); padding: 1px 7px; border-radius: 4px; background: #ffffff08; border: 1px solid var(--line-soft); color: var(--ink-dim); }
 
-.split { display: grid; grid-template-columns: 380px 1fr; gap: 16px; }
-@media (max-width: 980px) { .split { grid-template-columns: 1fr; } }
+.split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; }
+@media (max-width: 980px) { .split { grid-template-columns: minmax(0, 1fr); } }
 
 .scroll-list { max-height: 560px; overflow-y: auto; }
 .list-row {
@@ -238,3 +271,132 @@ pre.json {
 }
 .modal { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; width: 100%; max-width: 560px; box-shadow: var(--shadow); }
 .modal h2 { margin: 0 0 4px; font-size: 17px; }
+
+/* ── Mobile calibration ─────────────────────────────────────────────────────
+   The console is designed desktop-first; below 820px it becomes a native-feeling
+   Android shell: an app bar with a navigation drawer, a bottom navigation bar,
+   safe-area insets, and touch-sized controls. */
+@media (max-width: 820px) {
+  body { font-size: 14px; }
+
+  .shell { display: block; min-height: 100dvh; }
+  .main { min-height: 100dvh; }
+
+  /* Off-canvas navigation drawer. */
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: 60;
+    width: min(300px, 84vw); height: 100dvh;
+    padding: calc(18px + var(--safe-top)) 14px calc(30px + var(--safe-bottom)) 14px;
+    border-right: 1px solid var(--line);
+    box-shadow: 24px 0 60px -30px #000;
+    transform: translateX(-102%);
+    transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+    overscroll-behavior: contain;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .drawer-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 55;
+    background: #05060bcc; backdrop-filter: blur(2px);
+    animation: fade-in 0.18s ease-out;
+  }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  .brand { padding-bottom: 14px; }
+  .drawer-close {
+    display: grid; place-items: center; margin-left: auto;
+    width: 38px; height: 38px; border-radius: 10px;
+    border: 1px solid var(--line); background: #ffffff08; color: var(--ink-dim); font-size: 15px;
+  }
+  .drawer-close:active { background: #ffffff16; }
+
+  /* Touch-sized nav rows. */
+  .nav-item { padding: 12px 12px; font-size: 15px; min-height: 46px; }
+  .nav-icon { font-size: 15px; }
+  .nav-group { margin-bottom: 8px; }
+
+  /* App bar. */
+  .topbar {
+    padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-right)) 10px calc(14px + var(--safe-left));
+    gap: 10px;
+  }
+  .topbar h1 { font-size: 16px; }
+  .topbar-menu { display: flex; }
+  .topbar-meta { display: none; }
+
+  .page {
+    padding: 16px calc(14px + var(--safe-right)) calc(var(--bottomnav-h) + var(--safe-bottom) + 26px) calc(14px + var(--safe-left));
+  }
+  .signin-page {
+    padding: calc(24px + var(--safe-top)) calc(16px + var(--safe-right)) calc(40px + var(--safe-bottom)) calc(16px + var(--safe-left));
+  }
+
+  /* Bottom navigation bar. */
+  .bottom-nav {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    height: calc(var(--bottomnav-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: #0b0c14f2; backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line-soft);
+  }
+  .bottom-tab {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    border: none; background: transparent; color: var(--ink-faint);
+    font-size: 10.5px; padding: 6px 2px; min-height: 44px;
+    transition: color 0.12s;
+  }
+  .bottom-tab .bottom-icon { font-size: 18px; line-height: 1; opacity: 0.9; }
+  .bottom-tab.active { color: var(--ember); }
+  .bottom-tab.active .bottom-icon { opacity: 1; filter: drop-shadow(0 0 8px var(--ember-glow)); }
+  .bottom-tab:active { background: #ffffff0a; }
+
+  /* Touch-sized controls. */
+  .btn { padding: 10px 15px; font-size: 14px; min-height: 42px; }
+  .btn.sm { padding: 8px 12px; font-size: 13px; min-height: 38px; }
+  .input, .textarea, .select { padding: 11px 12px; font-size: 16px; min-height: 46px; }
+  .textarea { min-height: 110px; }
+  .label { font-size: 12.5px; }
+
+  /* Rows wrap; inputs shrink and share the line instead of overflowing. */
+  .row { flex-wrap: wrap; }
+  .row .input, .row .select { min-width: 0 !important; width: auto !important; flex: 1 1 150px !important; }
+
+  /* Stats and cards. */
+  .card { padding: 14px 15px; }
+  .card > * { min-width: 0; }
+  .stat-value { font-size: 23px; overflow-wrap: anywhere; }
+
+  /* Long identifiers/paths break instead of forcing the page wide. */
+  .mono, .kv dd, .json { overflow-wrap: anywhere; }
+  .pill { max-width: 100%; }
+
+  /* Long tables scroll horizontally instead of crushing. */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -14px;
+    padding: 0 14px;
+  }
+  .table { font-size: 13px; min-width: max-content; }
+  .table th { white-space: nowrap; padding: 9px 12px; }
+  .table td { padding: 10px 12px; }
+
+  /* Lists become comfortable touch targets. */
+  .list-row { padding: 13px 12px; }
+  .scroll-list { max-height: none; }
+
+  /* Key/value blocks stack instead of using a fixed label column. */
+  .kv { grid-template-columns: 1fr; gap: 2px 0; }
+  .kv dt { margin-top: 8px; }
+
+  pre.json { font-size: 11px; max-height: 340px; }
+
+  /* Modals become bottom sheets. */
+  .modal-backdrop { padding: 0; place-items: end stretch; }
+  .modal {
+    max-width: none; border-radius: 18px 18px 0 0;
+    padding: 20px 18px calc(20px + var(--safe-bottom)) 18px;
+    max-height: 88dvh; overflow-y: auto;
+  }
+}

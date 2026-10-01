@@ -81,7 +81,8 @@ export function KnowledgeSearch() {
           fulltext.length === 0 ? (
             <Empty icon="⌕" title="No fulltext matches" />
           ) : (
-            <table className="table">
+            <div className="table-wrap">
+<table className="table">
               <thead><tr><th>Title</th><th>Type</th><th>Vault path</th></tr></thead>
               <tbody>
                 {fulltext.map((r, i) => (
@@ -93,6 +94,7 @@ export function KnowledgeSearch() {
                 ))}
               </tbody>
             </table>
+</div>
           )
         )}
 

@@ -45,3 +45,30 @@ with backend prefixes:
 
 When adding a route, avoid `/api*`, `/solspire*`, `/health`, `/openapi.json`,
 `/docs*`, `/static*`.
+
+## Mobile shell (<= 820px)
+
+The console is desktop-first; `@media (max-width: 820px)` in `src/styles.css`
+turns it into a native-feeling Android shell. `Layout.tsx` renders the extra
+chrome (hamburger, drawer backdrop, bottom navigation); CSS hides it on desktop,
+so the desktop layout is unchanged.
+
+- **Drawer**: `.sidebar` becomes a fixed off-canvas panel; `.sidebar.open`
+  slides it in. Body scroll is locked while open; it closes on route change and
+  on backdrop tap. There is no history entry per open/close.
+- **Bottom nav**: `MOBILE_TABS` in `Layout.tsx` holds the five primary
+  destinations (Overview, Knowledge, Lab, Kernel, More). Routes outside those
+  highlight **More**, so the bar always shows a location. Adding a tab means
+  editing `MOBILE_TABS` and keeping the grid at `repeat(N, 1fr)`.
+- **Safe areas**: `--safe-*` vars wrap `env(safe-area-inset-*)`; the app bar,
+  drawer, page padding and bottom nav all consume them (`viewport-fit=cover` in
+  `index.html`).
+- **Overflow**: grid tracks use `minmax(0, 1fr)` and `.card { min-width: 0 }` so
+  long unbreakable identifiers can't widen the page. Wide tables are wrapped in
+  `.table-wrap` (horizontal scroll) — keep that wrapper when adding tables.
+- **PWA**: `public/manifest.webmanifest` + `icon.svg` / `icon-maskable.svg`
+  allow "Add to Home screen" to launch standalone.
+
+Verify mobile changes against the live dev server (not just `vite build`) with
+Chromium device emulation at 412x915 and check `documentElement.scrollWidth ===
+clientWidth` on every route — that is the reliable overflow signal.

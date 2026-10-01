@@ -89,7 +89,8 @@ function LabOverview({ lab, eng }: { lab: AsyncState<LabOverviewData>; eng: Asyn
               {d.patterns.length === 0 ? (
                 <Empty icon="◌" title="No patterns detected" />
               ) : (
-                <table className="table">
+                <div className="table-wrap">
+<table className="table">
                   <thead><tr><th>Pattern</th><th>Severity</th><th>Confidence</th><th>Evidence</th></tr></thead>
                   <tbody>
                     {d.patterns.map((p) => (
@@ -104,12 +105,14 @@ function LabOverview({ lab, eng }: { lab: AsyncState<LabOverviewData>; eng: Asyn
                     ))}
                   </tbody>
                 </table>
+</div>
               )}
             </Card>
 
             <Card title="Security observations" actions={<Pill tone="ok">values redacted</Pill>}>
               <div className="scroll-list" style={{ maxHeight: 260 }}>
-                <table className="table">
+                <div className="table-wrap">
+<table className="table">
                   <thead><tr><th>Path</th><th>Signals</th></tr></thead>
                   <tbody>
                     {d.security.observations.map((o) => (
@@ -120,6 +123,7 @@ function LabOverview({ lab, eng }: { lab: AsyncState<LabOverviewData>; eng: Asyn
                     ))}
                   </tbody>
                 </table>
+</div>
               </div>
             </Card>
           </div>
@@ -228,7 +232,8 @@ function LabGateway() {
             </Card>
           </div>
           <Card title="Provider catalog" actions={<Pill tone="muted">{d.catalog.length} entries</Pill>}>
-            <table className="table">
+            <div className="table-wrap">
+<table className="table">
               <thead><tr><th>Provider</th><th>Model</th><th>Class</th><th>Status</th><th>Detail</th></tr></thead>
               <tbody>
                 {d.catalog.map((c) => (
@@ -242,6 +247,7 @@ function LabGateway() {
                 ))}
               </tbody>
             </table>
+</div>
           </Card>
         </div>
       )}
@@ -304,7 +310,8 @@ function LabIntegrations() {
         return (
           <div className="grid" style={{ gap: 16 }}>
             <Card title="Adapters">
-              <table className="table">
+              <div className="table-wrap">
+<table className="table">
                 <thead><tr><th>Provider</th><th>State</th><th>Detail</th></tr></thead>
                 <tbody>
                   {Object.values(adapters).map((a) => (
@@ -316,6 +323,7 @@ function LabIntegrations() {
                   ))}
                 </tbody>
               </table>
+</div>
             </Card>
             <div className="error-banner" style={{ background: "#4fd6e012", borderColor: "#4fd6e044", color: "#9fe8ef" }}>
               {String(d.note ?? "External services remain authoritative for their own data.")}

@@ -139,7 +139,8 @@ function WorkEvents() {
         <WorkspaceGate state={ev} />
         {!ev.error && events.length === 0 && <Empty icon="∞" title="No work events" hint="WorkEvents are the immutable spine: every event carries actor, artifact, state-before and state-after refs." />}
         {events.length > 0 && (
-          <table className="table">
+          <div className="table-wrap">
+<table className="table">
             <thead><tr><th>Event</th><th>Type</th><th>Status</th><th>Occurred</th></tr></thead>
             <tbody>
               {events.map((e) => (
@@ -152,6 +153,7 @@ function WorkEvents() {
               ))}
             </tbody>
           </table>
+</div>
         )}
       </Card>
       <Card title="Canonical workloads" actions={<Pill tone="muted">{workloads.length}</Pill>}>
@@ -235,7 +237,8 @@ function Sources() {
     <Card title="Connected sources">
       <Async state={s} empty={(d) => d.sources.length === 0}>
         {(d) => (
-          <table className="table">
+          <div className="table-wrap">
+<table className="table">
             <thead><tr><th>Source</th><th>Kind</th><th>Status</th><th>Configured</th><th>Last sync</th></tr></thead>
             <tbody>
               {d.sources.map((x) => (
@@ -249,6 +252,7 @@ function Sources() {
               ))}
             </tbody>
           </table>
+</div>
         )}
       </Async>
     </Card>

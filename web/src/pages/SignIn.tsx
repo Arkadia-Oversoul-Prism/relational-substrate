@@ -30,7 +30,7 @@ export function SignIn() {
   }
 
   return (
-    <div className="grid" style={{ gap: 16, maxWidth: 900 }}>
+    <div className="grid signin-page" style={{ gap: 16 }}>
       {error && <div className="error-banner">{error}</div>}
 
       <Card title="Development sign-in" actions={<Pill tone="warn">dev-mode backend only</Pill>}>

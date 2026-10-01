@@ -25,7 +25,8 @@ export function Kernel() {
       <Card title="Job ledger" actions={<button className="btn sm" onClick={jobs.reload}>reload</button>}>
         <Async state={jobs} empty={(d) => d.jobs.length === 0}>
           {(d) => (
-            <table className="table">
+            <div className="table-wrap">
+<table className="table">
               <thead><tr><th>Job</th><th>Status</th><th>Intent</th><th>Source</th></tr></thead>
               <tbody>
                 {d.jobs.map((j) => (
@@ -38,6 +39,7 @@ export function Kernel() {
                 ))}
               </tbody>
             </table>
+</div>
           )}
         </Async>
       </Card>

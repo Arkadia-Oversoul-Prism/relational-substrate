@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { usePolling } from "../lib/hooks";
@@ -64,10 +65,24 @@ const TITLES: Record<string, string> = {
   "/sources": "Sources & Providers",
 };
 
+/** Primary destinations surfaced in the mobile bottom bar. */
+const MOBILE_TABS: NavEntry[] = [
+  { to: "/", label: "Overview", icon: "◉" },
+  { to: "/knowledge", label: "Knowledge", icon: "❖" },
+  { to: "/lab", label: "Lab", icon: "⚙" },
+  { to: "/kernel", label: "Kernel", icon: "∞" },
+];
+
 function titleFor(path: string): string {
   if (TITLES[path]) return TITLES[path];
   const base = "/" + path.split("/")[1];
   return TITLES[base] ?? "Arkadia";
+}
+
+function isTabActive(tab: string, path: string): boolean {
+  if (tab === "/") return path === "/";
+  if (tab === "/knowledge") return path === "/knowledge" || path.startsWith("/knowledge/");
+  return path === tab;
 }
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -75,18 +90,39 @@ export function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const hb = usePolling(() => ep.heartbeat(), 15000);
   const st = usePolling(() => ep.solspireStatus(), 30000);
+  const [drawer, setDrawer] = useState(false);
 
   const online = hb.data?.status === "radiant" && !hb.error;
+  const title = titleFor(location.pathname);
+  // Routes outside the primary tabs are reached through the "More" drawer, so
+  // highlight "More" there — otherwise the bar gives no sense of location.
+  const inPrimary = MOBILE_TABS.some((t) => isTabActive(t.to, location.pathname));
+
+  // Close the drawer whenever the route changes.
+  useEffect(() => setDrawer(false), [location.pathname]);
+
+  // Lock body scroll while the drawer is open.
+  useEffect(() => {
+    document.body.style.overflow = drawer ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [drawer]);
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {drawer && <div className="drawer-backdrop" onClick={() => setDrawer(false)} />}
+
+      <aside className={`sidebar ${drawer ? "open" : ""}`}>
         <div className="brand">
           <div className="brand-mark">🜂</div>
           <div className="brand-text">
             <span className="brand-title">Arkadia Substrate</span>
             <span className="brand-sub">console v0.1</span>
           </div>
+          <button className="drawer-close" aria-label="Close navigation" onClick={() => setDrawer(false)}>
+            ✕
+          </button>
         </div>
 
         {NAV.map((group) => (
@@ -132,7 +168,12 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <main className="main">
         <header className="topbar">
-          <h1>{titleFor(location.pathname)}</h1>
+          <button className="topbar-menu" aria-label="Open navigation" onClick={() => setDrawer(true)}>
+            <span />
+            <span />
+            <span />
+          </button>
+          <h1>{title}</h1>
           <div className="spacer" />
           <div className="topbar-meta">
             {st.data && (
@@ -144,6 +185,28 @@ export function Layout({ children }: { children: ReactNode }) {
           {hb.data && <Pill tone={online ? "ok" : "err"}>{hb.data.status}</Pill>}
         </header>
         <div className="page">{children}</div>
+
+        <nav className="bottom-nav">
+          {MOBILE_TABS.map((t) => (
+            <NavLink
+              key={t.to}
+              to={t.to}
+              end={t.to === "/"}
+              className={`bottom-tab ${isTabActive(t.to, location.pathname) ? "active" : ""}`}
+            >
+              <span className="bottom-icon">{t.icon}</span>
+              <span className="bottom-label">{t.label}</span>
+            </NavLink>
+          ))}
+          <button
+            className={`bottom-tab ${!inPrimary ? "active" : ""}`}
+            onClick={() => setDrawer(true)}
+            aria-label="More navigation"
+          >
+            <span className="bottom-icon">☰</span>
+            <span className="bottom-label">More</span>
+          </button>
+        </nav>
       </main>
     </div>
   );

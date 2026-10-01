@@ -35,7 +35,8 @@ export function Sources() {
       <Card title="Corpus sources">
         <Async state={sources} empty={(d) => d.sources.length === 0}>
           {(d) => (
-            <table className="table">
+            <div className="table-wrap">
+<table className="table">
               <thead><tr><th>Source</th><th>Configured</th><th>Authenticated</th><th>Live</th><th>Repo</th></tr></thead>
               <tbody>
                 {d.sources.map((s) => (
@@ -49,6 +50,7 @@ export function Sources() {
                 ))}
               </tbody>
             </table>
+</div>
           )}
         </Async>
       </Card>
@@ -57,7 +59,8 @@ export function Sources() {
         <Card title="Provider keys" actions={<Pill tone="muted">masked</Pill>}>
           <Async state={keys} empty={(d) => d.keys.length === 0}>
             {(d) => (
-              <table className="table">
+              <div className="table-wrap">
+<table className="table">
                 <thead><tr><th>Provider</th><th>Source</th><th>Quota</th></tr></thead>
                 <tbody>
                   {d.keys.map((k) => (
@@ -69,6 +72,7 @@ export function Sources() {
                   ))}
                 </tbody>
               </table>
+</div>
             )}
           </Async>
           <p className="tiny faint mt" style={{ marginBottom: 0 }}>
@@ -114,7 +118,8 @@ export function Sources() {
           <Async state={tree} empty={(d) => d.files.length === 0}>
             {(d) => (
               <div className="scroll-list" style={{ maxHeight: 320 }}>
-                <table className="table">
+                <div className="table-wrap">
+<table className="table">
                   <thead><tr><th>Path</th><th className="right">Size</th></tr></thead>
                   <tbody>
                     {d.files.slice(0, 120).map((f) => (
@@ -125,6 +130,7 @@ export function Sources() {
                     ))}
                   </tbody>
                 </table>
+</div>
                 {d.files.length > 120 && <div className="tiny faint mt">showing 120 of {d.total}</div>}
               </div>
             )}
