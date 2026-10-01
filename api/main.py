@@ -2026,6 +2026,12 @@ from api.loop_routes import router as _loop_router
 
 app.include_router(_loop_router)
 
+# ── Plan execution surface ──────────────────────────────────
+# Extracted to api/plan_routes.py to hold the 2600-line budget on this file.
+from api.plan_routes import router as _plan_router
+
+app.include_router(_plan_router)
+
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 
@@ -2228,32 +2234,7 @@ async def run_tool_endpoint(
     return result
 
 
-# ── Plan / execute ────────────────────────────────────────────────────────────
-
-@app.post("/api/plan/run")
-async def run_plan(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-    user_input = body.get("input", "").strip()
-    if not user_input:
-        raise HTTPException(status_code=400, detail="input is required")
-    try:
-        from kernel.planner import plan_or_fallback
-        from kernel.execution import execute_plan
-        plan = plan_or_fallback(user_input)
-        result = execute_plan(plan)
-        return {
-            "success":  bool(result.get("success")),
-            "summary":  result.get("summary", ""),
-            "steps":    result.get("steps", []),
-            "plan":     plan,
-        }
-    except Exception as e:
-        logger.exception("[PLAN/RUN] Error")
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ── Plan / execute — router extracted to api/plan_routes.py (2600-line budget) ──
 
 # ── Metrics ────────────────────────────────────────────────────────────────────
 
@@ -2283,7 +2264,7 @@ async def get_metrics():
 # ── Agent Spawn — OpenClaw / external trigger entry point ─────────────────────
 
 @app.post("/api/agent/spawn")
-async def agent_spawn(request: Request):
+async def agent_spawn(request: Request, user: dict = Depends(_require_auth)):
     """Universal on-demand agent spawn endpoint.
 
     Accepts an intent + optional context from any external trigger:
