@@ -1,0 +1,194 @@
+{
+  "verdict": "GREEN",
+  "run_id": "ef07d6b7",
+  "base_url": "https://arkadia-kw64.onrender.com",
+  "started": "2026-08-19T22:48:32.302273+00:00",
+  "finished": "2026-08-19T22:48:54.461720+00:00",
+  "user_a_uid": "BLc7JcytC9PdaKU3XQXypaXgYQ83",
+  "user_b_uid": "QgJlxsGk1KfRdnwkdlbwaWq5D3h2",
+  "canaries": {
+    "a": {
+      "uuid": "c40a7f9e-7dd0-4417-befc-4319457cc517",
+      "id": 33,
+      "marker": "PHASE0C_USER_A_ef07d6b7_2d6206"
+    },
+    "b": {
+      "uuid": "b1aaba6d-4c25-4c5b-85e2-06659fc4dd90",
+      "id": 34,
+      "marker": "PHASE0C_USER_B_ef07d6b7_36b16a"
+    }
+  },
+  "results": [
+    {
+      "name": "anon_status",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "anon_public_search",
+      "ok": true,
+      "detail": "hits=3",
+      "status": 200
+    },
+    {
+      "name": "a_create_canary",
+      "ok": true,
+      "detail": "uuid=c40a7f9e-7dd0-4417-befc-4319457cc517 id=33",
+      "status": 200
+    },
+    {
+      "name": "b_create_canary",
+      "ok": true,
+      "detail": "uuid=b1aaba6d-4c25-4c5b-85e2-06659fc4dd90 id=34",
+      "status": 200
+    },
+    {
+      "name": "a_get_note",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "a_get_node",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "a_traverse",
+      "ok": true,
+      "detail": "status=200 nodes=1",
+      "status": 200
+    },
+    {
+      "name": "a_full_graph",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "a_search",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "b_get_a_note",
+      "ok": true,
+      "detail": "status=404 leaked=False",
+      "status": 404
+    },
+    {
+      "name": "b_get_a_node",
+      "ok": true,
+      "detail": "status=404 leaked=False",
+      "status": 404
+    },
+    {
+      "name": "b_traverse_a",
+      "ok": true,
+      "detail": "status=200 nodes=0",
+      "status": 200
+    },
+    {
+      "name": "b_graph_no_a",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "b_search_a_marker",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "b_timeline_no_a",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "a_get_b_note",
+      "ok": true,
+      "detail": "status=404 leaked=False",
+      "status": 404
+    },
+    {
+      "name": "a_search_b_marker",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "anon_get_a_note",
+      "ok": true,
+      "detail": "status=404 leaked=False",
+      "status": 404
+    },
+    {
+      "name": "anon_search_a",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "anon_get_b_note",
+      "ok": true,
+      "detail": "status=404 leaked=False",
+      "status": 404
+    },
+    {
+      "name": "anon_search_b",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "anon_graph_no_private",
+      "ok": true,
+      "detail": "leaked_a=False leaked_b=False",
+      "status": 200
+    },
+    {
+      "name": "anon_timeline_no_private",
+      "ok": true,
+      "detail": "status=200",
+      "status": 200
+    },
+    {
+      "name": "a_oracle_seed",
+      "ok": true,
+      "detail": "status=200 memory=True",
+      "status": 200
+    },
+    {
+      "name": "a_oracle_retrieve",
+      "ok": true,
+      "detail": "status=200 marker_in_response=True",
+      "status": 200
+    },
+    {
+      "name": "b_oracle_no_a_marker",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "anon_oracle_no_a_marker",
+      "ok": true,
+      "detail": "status=200 leaked=False",
+      "status": 200
+    },
+    {
+      "name": "public_corpus_regression",
+      "ok": true,
+      "detail": "hits=5",
+      "status": 200
+    }
+  ],
+  "errors": [],
+  "cleanup_ok": true,
+  "commit_expected": "ffefb338b2a620c78ef7933bff6bb90b1e56eacf"
+}

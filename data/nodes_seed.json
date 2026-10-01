@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {
+      "node_key": "fixture-node-01",
+      "display_name": "Fixture Node 01",
+      "role": "Structural Fixture",
+      "role_sigil": "",
+      "ims_id": "IMS-001",
+      "access_level": 1,
+      "status": "active",
+      "email_hint": "fixture-node-01",
+      "personal_codex_file": "fixture-node-01.json",
+      "created_at": "2026-01-01",
+      "notes": "Sanitized structural fixture. No personal data."
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+serviceAccountKey.json
+
+# Runtime state (local, regenerated)
+vault/**/*.md
+!vault/Index/README.md
+!vault/Templates/**
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/solspire_projects.db
+data/weaver/notes/
+weaver/notes/*.txt
+forge/*.png
+
+# Local stores written at runtime
+data/api_keys.json
+data/provider_keys.json
+data/tts_keys.json
+data/direct_scrolls.json
+data/ims_diagnostics.json
+data/orders.json
+data/deliveries.json
+data/ims_inquiries.json
+data/releases.json
+
+
+# SQLite runtime family — sidecars (-wal/-shm) must not be stageable
+*.db
+*.sqlite
+*.sqlite3
+arkadia_oracle.db
+tests/_spine_test.db*
+data/solspire_projects.db*
+
+# OS
+.DS_Store
+Thumbs.db

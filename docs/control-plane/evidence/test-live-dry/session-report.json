@@ -1,0 +1,13 @@
+{
+  "status": "NO_LEGAL_MOVE",
+  "trajectory_id": "ARKADIA-TRUTHFULNESS-01",
+  "repository_sha": "ref: refs/heads/main",
+  "session_id": "test-live-dry",
+  "dry_run": true,
+  "next_move": null,
+  "blockers": [
+    "no legal pending move (all complete or dependencies unresolved)"
+  ],
+  "plan": null,
+  "evidence_path": null
+}

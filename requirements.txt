@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+python-multipart
+requests
+google-generativeai
+openai
+anthropic
+firebase-admin
+cryptography
+pdfminer.six
+python-docx
+beautifulsoup4
+edge-tts
+piper-tts

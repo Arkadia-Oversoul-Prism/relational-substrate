@@ -1,0 +1,919 @@
+"""
+Arkadia Knowledge OS — Knowledge API Routes
+============================================
+FastAPI router exposing the Knowledge OS over HTTP.
+All routes are read-by-Oracle, write-by-pipeline.
+No business logic here — this is a thin HTTP skin over the knowledge layer.
+"""
+
+import logging
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
+from typing import Optional
+
+logger = logging.getLogger("arkadia.knowledge_routes")
+
+router = APIRouter(prefix="/api/knowledge", tags=["knowledge-os"])
+
+
+async def _optional_user_id(request: Request) -> Optional[str]:
+    """Extract Firebase uid when present; never raise (optional auth)."""
+    try:
+        from api.auth import get_current_user
+        user = await get_current_user(request)
+        return (user or {}).get("uid") or None
+    except Exception:
+        return None
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+class IngestRequest(BaseModel):
+    title: str
+    content: str
+    note_type: str = "note"
+    project_id: Optional[int] = None
+    thread_id: Optional[int] = None
+    participants: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
+    source_provider: Optional[str] = None
+    auto_tag: bool = True
+    auto_embed: bool = True
+    auto_link: bool = True
+
+
+class NoteUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+
+class ConversationIngestRequest(BaseModel):
+    prompt: str
+    response: str
+    provider: str
+    persona: Optional[str] = None
+    project_id: Optional[int] = None
+    thread_id: Optional[int] = None
+
+
+class SearchRequest(BaseModel):
+    query: str
+    modes: Optional[list[str]] = None
+    top_k: int = 20
+
+
+class ContextRequest(BaseModel):
+    query: str
+    project_id: Optional[int] = None
+    thread_id: Optional[int] = None
+    max_notes: int = 8
+    include_timeline: bool = True
+
+
+class GraphEdgeRequest(BaseModel):
+    source_id: int
+    target_id: int
+    relationship: str
+    weight: float = 1.0
+
+
+class ProjectRequest(BaseModel):
+    name: str
+    description: str = ""
+    tags: Optional[list[str]] = None
+
+
+class SendRequest(BaseModel):
+    messages: list[dict]
+    system_prompt: Optional[str] = None
+    persona: Optional[str] = None
+    provider: Optional[str] = None
+    project_id: Optional[int] = None
+    thread_id: Optional[int] = None
+    ingest_response: bool = True
+    temperature: float = 0.7
+    max_tokens: int = 2048
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Knowledge Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/ingest")
+async def ingest_note(req: IngestRequest, request: Request):
+    """Ingest a note through the full knowledge pipeline."""
+    try:
+        from knowledge.pipeline import ingest
+        result = ingest(
+            title=req.title,
+            content=req.content,
+            note_type=req.note_type,
+            project_id=req.project_id,
+            thread_id=req.thread_id,
+            participants=req.participants,
+            tags=req.tags,
+            source_provider=req.source_provider,
+            user_id=await _optional_user_id(request),
+            auto_tag=req.auto_tag,
+            auto_embed=req.auto_embed,
+            auto_link=req.auto_link,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ingest/conversation")
+async def ingest_conversation(req: ConversationIngestRequest, request: Request):
+    """Ingest a full conversation exchange as structured knowledge."""
+    try:
+        from knowledge.pipeline import ingest_conversation
+        result = ingest_conversation(
+            prompt=req.prompt,
+            response=req.response,
+            provider=req.provider,
+            persona=req.persona,
+            project_id=req.project_id,
+            thread_id=req.thread_id,
+            user_id=await _optional_user_id(request),
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notes
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/notes")
+async def list_notes(
+    request: Request,
+    note_type: Optional[str] = None,
+    project_id: Optional[int] = None,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+):
+    from knowledge.vault import list_notes
+    return list_notes(
+        note_type=note_type,
+        project_id=project_id,
+        user_id=await _optional_user_id(request),
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/notes/{note_uuid}")
+async def get_note(note_uuid: str, request: Request):
+    from knowledge.vault import get_note
+    note = get_note(note_uuid, user_id=await _optional_user_id(request))
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note
+
+
+
+@router.patch("/notes/{note_uuid}")
+async def patch_note(note_uuid: str, req: NoteUpdateRequest, request: Request):
+    """Owner-only update of a privately owned note (P0-F memory governance)."""
+    uid = await _optional_user_id(request)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    from knowledge.vault import update_note
+    updated = update_note(
+        note_uuid,
+        title=req.title,
+        content=req.content,
+        tags=req.tags,
+        user_id=uid,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return updated
+
+
+@router.delete("/notes/{note_uuid}")
+async def remove_note(note_uuid: str, request: Request):
+    """Owner-only hard delete of a privately owned note (P0-F)."""
+    uid = await _optional_user_id(request)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    from knowledge.vault import delete_note
+    ok = delete_note(note_uuid, user_id=uid)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"deleted": True, "uuid": note_uuid}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Search
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/search")
+async def search(req: SearchRequest, request: Request):
+    """Unified multi-mode search across the Knowledge Vault (user-scoped when authenticated)."""
+    try:
+        from knowledge.search import unified_search
+        return unified_search(
+            req.query,
+            modes=req.modes,
+            top_k=req.top_k,
+            user_id=await _optional_user_id(request),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search/semantic")
+async def semantic_search(request: Request, q: str, top_k: int = 10):
+    from knowledge.search import semantic_search
+    return semantic_search(q, top_k=top_k, user_id=await _optional_user_id(request))
+
+
+@router.get("/search/fulltext")
+async def fulltext_search(
+    request: Request,
+    q: str,
+    note_type: Optional[str] = None,
+    limit: int = 20,
+):
+    from knowledge.search import fulltext_search
+    return fulltext_search(
+        q, note_type=note_type, limit=limit, user_id=await _optional_user_id(request),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Context Engine
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/context")
+async def assemble_context(req: ContextRequest, request: Request):
+    """Assemble a context package for a given query — the Oracle's input to any provider."""
+    try:
+        from knowledge.context_engine import assemble_context, format_context_for_provider
+        package = assemble_context(
+            query=req.query,
+            project_id=req.project_id,
+            thread_id=req.thread_id,
+            max_notes=req.max_notes,
+            include_timeline=req.include_timeline,
+            user_id=await _optional_user_id(request),
+        )
+        return {
+            "package": package,
+            "formatted": format_context_for_provider(package),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Knowledge Graph
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/graph")
+async def full_graph(request: Request):
+    """Export the accessible knowledge graph (own + public corpus)."""
+    from knowledge.graph import full_graph_export
+    return full_graph_export(user_id=await _optional_user_id(request))
+
+
+@router.get("/graph/{note_id}/traverse")
+async def traverse_graph(
+    note_id: int,
+    request: Request,
+    depth: int = 2,
+    relationship: Optional[str] = None,
+):
+    from knowledge.graph import traverse
+    return traverse(
+        note_id, max_depth=depth, relationship_filter=relationship,
+        user_id=await _optional_user_id(request),
+    )
+
+
+@router.get("/graph/{note_id}/path/{target_id}")
+async def find_path_route(note_id: int, target_id: int, request: Request):
+    from knowledge.graph import find_path
+    path = find_path(note_id, target_id, user_id=await _optional_user_id(request))
+    return {"path": path, "length": len(path)}
+
+
+@router.post("/graph/edge")
+async def add_edge(req: GraphEdgeRequest):
+    from knowledge.graph import add_edge
+    try:
+        add_edge(req.source_id, req.target_id, req.relationship, req.weight)
+        return {"status": "ok"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timeline
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/timeline")
+async def get_timeline(
+    request: Request,
+    event_type: Optional[str] = None,
+    project_id: Optional[int] = None,
+    note_id: Optional[int] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+):
+    from knowledge import timeline as tl
+    return tl.query(
+        event_type=event_type, project_id=project_id, note_id=note_id,
+        since=since, until=until, limit=limit, offset=offset,
+        user_id=await _optional_user_id(request),
+    )
+
+
+@router.get("/timeline/recent")
+async def recent_timeline(request: Request, limit: int = 20):
+    from knowledge import timeline as tl
+    return tl.recent(limit=limit, user_id=await _optional_user_id(request))
+
+
+@router.get("/timeline/replay/{project_id}")
+async def replay_project(project_id: int, request: Request):
+    from knowledge import timeline as tl
+    return tl.replay_project(project_id, user_id=await _optional_user_id(request))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Projects
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/projects")
+async def list_projects(request: Request):
+    from knowledge.vault import list_projects as vault_list_projects
+    return vault_list_projects(user_id=await _optional_user_id(request))
+
+
+@router.post("/projects")
+async def create_project(req: ProjectRequest, request: Request):
+    from knowledge.vault import create_project
+    return create_project(
+        req.name, req.description, req.tags, user_id=await _optional_user_id(request)
+    )
+
+
+@router.get("/projects/{name_or_uuid}")
+async def get_project(name_or_uuid: str, request: Request):
+    from knowledge.vault import get_project
+    project = get_project(name_or_uuid, user_id=await _optional_user_id(request))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Provider Router
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/providers")
+async def list_providers():
+    from providers.router import list_providers
+    return list_providers()
+
+
+@router.get("/providers/health")
+async def providers_health():
+    from providers.router import health_all
+    return health_all()
+
+
+@router.post("/providers/send")
+async def send_with_context(req: SendRequest, request: Request):
+    """
+    Send a message through the Knowledge OS pipeline:
+    1. Assemble context from the vault for the last user message
+    2. Inject context into system prompt
+    3. Route to provider
+    4. Ingest the response as knowledge (if ingest_response=True)
+    """
+    try:
+        from knowledge.context_engine import assemble_context, format_context_for_provider
+        from providers.router import send
+
+        uid = await _optional_user_id(request)
+
+        user_msgs = [m for m in req.messages if m.get("role") == "user"]
+        query = user_msgs[-1]["content"] if user_msgs else ""
+
+        context_pkg = assemble_context(
+            query, project_id=req.project_id, user_id=uid,
+        )
+        context_str = format_context_for_provider(context_pkg)
+        system = (req.system_prompt or "") + ("\n\n" + context_str if context_str else "")
+
+        response = send(
+            messages=req.messages,
+            system_prompt=system,
+            persona_name=req.persona,
+            provider_name=req.provider,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+        )
+
+        if req.ingest_response and query and response.content:
+            from knowledge.pipeline import ingest_conversation
+            ingest_conversation(
+                prompt=query,
+                response=response.content,
+                provider=response.provider_name,
+                persona=req.persona,
+                project_id=req.project_id,
+                thread_id=req.thread_id,
+                user_id=uid,
+            )
+
+        return response.to_dict()
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Personas
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/personas")
+async def list_personas():
+    from knowledge.db import execute
+    return execute("SELECT id, name, preferred_provider, created_at FROM personas ORDER BY name")
+
+
+@router.get("/personas/{name}")
+async def get_persona(name: str):
+    from knowledge.db import execute_one
+    row = execute_one("SELECT * FROM personas WHERE name = ?", (name,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    return row
+
+
+def resolve_persona_system_prompt(name: str) -> Optional[str]:
+    """Persona system-prompt lookup for the provider router (Pass 05).
+
+    Injected into providers.router by the composition root (api/main.py) so
+    providers/ never imports the knowledge layer (ADR-015). Identical query
+    to the one the router previously ran inline.
+    """
+    from knowledge.db import execute_one
+    row = execute_one("SELECT system_prompt FROM personas WHERE name = ?", (name,))
+    return row["system_prompt"] if row else None
+
+
+def wire_downstream_seams() -> None:
+    """Composition-root wiring for cross-layer capability seams (ADR-015):
+
+      • kernel/tts.py       ← api.tts_key_manager get/rotate (Pass 04)
+      • providers/router.py ← persona system-prompt resolver above (Pass 05)
+      • api/nodes.py        ← kernel.tools registered-tool count (Pass 06)
+
+    Called once from api/main.py so kernel/ never imports api/, providers/
+    never imports knowledge/, and the identity layer (api/nodes) stays a
+    leaf. Failures degrade to each layer's standalone fallback behavior,
+    identical to the pre-injection import-failure paths.
+    """
+    try:
+        from api.tts_key_manager import get_active_key, rotate_key
+        from kernel import tts as _kernel_tts
+        _kernel_tts.configure_key_store(get_active_key, rotate_key)
+    except Exception as e:
+        logger.warning(f"[TTS] key-store injection skipped: {e}")
+    try:
+        from providers import router as _provider_router
+        _provider_router.configure_persona_resolver(resolve_persona_system_prompt)
+    except Exception as e:
+        logger.warning(f"[PROVIDERS] persona resolver injection skipped: {e}")
+    try:
+        from kernel.tools import list_tools
+        from api import nodes as _nodes
+        _nodes.configure_tools_counter(lambda: len(list_tools()))
+    except Exception as e:
+        logger.warning(f"[NODES] tools counter injection skipped: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Knowledge OS status  (Task 2 — enhanced with canonical ontology)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ONTOLOGY_VERSION = "1.0.0"   # frozen at K3-A
+_GRAPH_VERSION    = "1.0.0"   # operational graph version
+
+
+@router.get("/status")
+async def knowledge_os_status():
+    """
+    Arkadia Knowledge OS health summary — extended with canonical ontology stats.
+    Backwards-compatible: all original keys are preserved.
+    """
+    from knowledge.db import execute_one, execute
+    from knowledge.node_types import NODE_TYPES
+    from knowledge.relationship_types import RELATIONSHIP_TYPES
+    try:
+        # ── Core counts ──────────────────────────────────────────────────────
+        note_count    = execute_one("SELECT COUNT(*) as n FROM notes")
+        project_count = execute_one("SELECT COUNT(*) as n FROM projects")
+        timeline_count= execute_one("SELECT COUNT(*) as n FROM timeline")
+        edge_count    = execute_one("SELECT COUNT(*) as n FROM graph_edges")
+        chunk_count   = execute_one("SELECT COUNT(*) as n FROM chunks")
+        embed_count   = execute_one("SELECT COUNT(*) as n FROM embeddings")
+        pending_embed = execute_one("SELECT COUNT(*) as n FROM notes WHERE embedding_status = 'pending'")
+        partial_embed = execute_one("SELECT COUNT(*) as n FROM notes WHERE embedding_status = 'partial'")
+        failed_embed  = execute_one("SELECT COUNT(*) as n FROM notes WHERE embedding_status = 'failed'")
+
+        total_notes = note_count["n"] if note_count else 0
+        total_edges = edge_count["n"] if edge_count else 0
+
+        # ── Nodes grouped by canonical node type ─────────────────────────────
+        type_rows = execute(
+            "SELECT note_type, COUNT(*) as cnt FROM notes GROUP BY note_type ORDER BY cnt DESC"
+        )
+        nodes_by_type = {row["note_type"]: row["cnt"] for row in type_rows}
+
+        # ── Relationships grouped by canonical relationship type ──────────────
+        rel_rows = execute(
+            "SELECT relationship, COUNT(*) as cnt FROM graph_edges GROUP BY relationship ORDER BY cnt DESC"
+        )
+        relationships_by_type = {row["relationship"]: row["cnt"] for row in rel_rows}
+
+        # ── Graph density (edges / max possible edges) ────────────────────────
+        max_edges = total_notes * (total_notes - 1) if total_notes > 1 else 1
+        graph_density = round(total_edges / max_edges, 6) if max_edges else 0.0
+
+        # ── Graph health quick summary ────────────────────────────────────────
+        from knowledge.graph_health import evaluate_graph_health
+        health = evaluate_graph_health()
+
+        # ── Last ingestion timestamp ──────────────────────────────────────────
+        last_ingestion_row = execute_one(
+            "SELECT MAX(created_at) as ts FROM notes"
+        )
+        last_ingestion = last_ingestion_row["ts"] if last_ingestion_row else None
+
+        # ── Growth metrics (K3-B + K3-C) ─────────────────────────────────────
+        from datetime import datetime, timezone, timedelta
+        now_utc  = datetime.now(timezone.utc)
+        week_ago = (now_utc - timedelta(days=7)).isoformat()
+        day_ago  = (now_utc - timedelta(days=1)).isoformat()
+
+        notes_last_7d  = execute_one("SELECT COUNT(*) as n FROM notes WHERE created_at >= ?", (week_ago,))
+        edges_last_7d  = execute_one("SELECT COUNT(*) as n FROM graph_edges WHERE created_at >= ?", (week_ago,))
+        notes_today    = execute_one("SELECT COUNT(*) as n FROM notes WHERE created_at >= ?", (day_ago,))
+        edges_today    = execute_one("SELECT COUNT(*) as n FROM graph_edges WHERE created_at >= ?", (day_ago,))
+
+        # ── Average degree ────────────────────────────────────────────────────
+        avg_degree = round((2 * total_edges) / total_notes, 3) if total_notes else 0.0
+
+        # ── Embedding coverage ────────────────────────────────────────────────
+        embed_complete = embed_count["n"] if embed_count else 0
+        embed_coverage = round(embed_complete / total_notes, 4) if total_notes else 0.0
+
+        # ── Semantic link count (enrichment-created edges) ────────────────────
+        semantic_edges = execute_one(
+            "SELECT COUNT(*) as n FROM graph_edges WHERE relationship IN ('relates_to','references','connected_to','mentions','derived_from')"
+        )
+
+        return {
+            # ── Backwards-compatible block ────────────────────────────────────
+            "status": "operational",
+            "vault": {
+                "notes": total_notes,
+                "projects": project_count["n"] if project_count else 0,
+                "chunks": chunk_count["n"] if chunk_count else 0,
+                "embeddings": embed_complete,
+                "pending_embeddings": pending_embed["n"] if pending_embed else 0,
+            },
+            "graph": {
+                "edges": total_edges,
+            },
+            "timeline": {
+                "events": timeline_count["n"] if timeline_count else 0,
+            },
+            # ── Extended block (K3-B) ─────────────────────────────────────────
+            "ontology": {
+                "version": _ONTOLOGY_VERSION,
+                "node_types_count": len(NODE_TYPES),
+                "relationship_types_count": len(RELATIONSHIP_TYPES),
+            },
+            "graph_version": _GRAPH_VERSION,
+            "nodes_by_type": nodes_by_type,
+            "relationships_by_type": relationships_by_type,
+            "graph_density": graph_density,
+            "graph_health": health["overall"],
+            "indexing_status": {
+                "complete": embed_complete,
+                "pending": pending_embed["n"] if pending_embed else 0,
+                "partial": partial_embed["n"] if partial_embed else 0,
+                "failed": failed_embed["n"] if failed_embed else 0,
+                "coverage": embed_coverage,
+            },
+            "last_ingestion": last_ingestion,
+            # ── Extended block (K3-C) ─────────────────────────────────────────
+            "growth": {
+                "notes_last_7d":   notes_last_7d["n"] if notes_last_7d else 0,
+                "edges_last_7d":   edges_last_7d["n"] if edges_last_7d else 0,
+                "notes_today":     notes_today["n"]   if notes_today   else 0,
+                "edges_today":     edges_today["n"]   if edges_today   else 0,
+                "avg_node_degree": avg_degree,
+                "semantic_links":  semantic_edges["n"] if semantic_edges else 0,
+                "embed_coverage":  embed_coverage,
+            },
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Knowledge Graph relationships  (Task 1 — operational graph analytics)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/relationships")
+async def graph_relationships():
+    """
+    Operational Knowledge Graph analytics.
+    Exposes relationship counts, node connectivity, density, components,
+    and top connected nodes — structured for future visualizations.
+    Does NOT expose internal implementation details.
+    """
+    from knowledge.db import execute, execute_one
+    from knowledge.relationship_types import RELATIONSHIP_REGISTRY
+    from knowledge.graph_health import _check_graph_connectivity
+    try:
+        total_nodes = execute_one("SELECT COUNT(*) as n FROM notes")["n"] or 0
+        total_edges = execute_one("SELECT COUNT(*) as n FROM graph_edges")["n"] or 0
+
+        # ── Relationship type distribution ────────────────────────────────────
+        rel_rows = execute(
+            "SELECT relationship, COUNT(*) as cnt FROM graph_edges GROUP BY relationship ORDER BY cnt DESC"
+        )
+        rel_distribution = []
+        for row in rel_rows:
+            reg = RELATIONSHIP_REGISTRY.get(row["relationship"])
+            rel_distribution.append({
+                "type": row["relationship"],
+                "display_name": reg.display_name if reg else row["relationship"],
+                "direction": reg.direction if reg else "unknown",
+                "count": row["cnt"],
+            })
+
+        # ── Top connected nodes (highest degree) ─────────────────────────────
+        degree_rows = execute(
+            """
+            SELECT n.id, n.title, n.note_type,
+                   (SELECT COUNT(*) FROM graph_edges WHERE source_note_id = n.id
+                     OR target_note_id = n.id) as degree
+            FROM notes n
+            ORDER BY degree DESC
+            LIMIT 10
+            """
+        )
+        top_nodes = [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "note_type": row["note_type"],
+                "degree": row["degree"],
+            }
+            for row in degree_rows
+        ]
+
+        # ── Graph density ─────────────────────────────────────────────────────
+        max_edges = total_nodes * (total_nodes - 1) if total_nodes > 1 else 1
+        density   = round(total_edges / max_edges, 6) if max_edges else 0.0
+
+        # ── Node connectivity summary ─────────────────────────────────────────
+        connectivity = _check_graph_connectivity()
+
+        # ── Average degree ────────────────────────────────────────────────────
+        avg_degree = round((2 * total_edges) / total_nodes, 2) if total_nodes else 0.0
+
+        return {
+            "summary": {
+                "total_nodes": total_nodes,
+                "total_relationships": total_edges,
+                "relationship_types_used": len(rel_distribution),
+                "graph_density": density,
+                "average_degree": avg_degree,
+                "connected_components": connectivity.get("components", 0),
+            },
+            "relationship_distribution": rel_distribution,
+            "top_connected_nodes": top_nodes,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Graph health endpoint  (K3-B public surface)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/graph/health")
+async def graph_health():
+    """Full graph health evaluation — powers SolSpire diagnostics."""
+    try:
+        from knowledge.graph_health import evaluate_graph_health
+        return evaluate_graph_health()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Graph Explorer API  (K3-C Task 4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/node/{note_id}")
+async def get_node(note_id: int, request: Request):
+    """Retrieve a Knowledge Object by ID (ownership scoped)."""
+    from knowledge.vault import get_note_by_id
+    from knowledge.db import execute
+    from knowledge.graph import accessible_note_ids
+    user_id = await _optional_user_id(request)
+    note = get_note_by_id(note_id, user_id=user_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Node not found")
+    allowed = accessible_note_ids(user_id)
+    out_edges = execute(
+        """
+        SELECT ge.id, ge.target_note_id, ge.relationship, ge.weight, ge.created_at,
+               n.title as target_title, n.note_type as target_type, n.uuid as target_uuid
+        FROM graph_edges ge
+        JOIN notes n ON n.id = ge.target_note_id
+        WHERE ge.source_note_id = ?
+        ORDER BY ge.weight DESC
+        """,
+        (note_id,),
+    )
+    out_edges = [e for e in out_edges if e["target_note_id"] in allowed]
+    in_edges = execute(
+        """
+        SELECT ge.id, ge.source_note_id, ge.relationship, ge.weight, ge.created_at,
+               n.title as source_title, n.note_type as source_type, n.uuid as source_uuid
+        FROM graph_edges ge
+        JOIN notes n ON n.id = ge.source_note_id
+        WHERE ge.target_note_id = ?
+        ORDER BY ge.weight DESC
+        """,
+        (note_id,),
+    )
+    in_edges = [e for e in in_edges if e["source_note_id"] in allowed]
+    return {
+        "node": dict(note),
+        "outbound_edges": out_edges,
+        "inbound_edges": in_edges,
+        "degree": len(out_edges) + len(in_edges),
+    }
+
+
+@router.get("/neighbors/{note_id}")
+async def get_neighbors(
+    note_id: int,
+    request: Request,
+    depth: int = Query(1, ge=1, le=3),
+    relationship: Optional[str] = None,
+):
+    """Return neighboring Knowledge Objects within depth hops (ownership scoped)."""
+    from knowledge.graph import traverse
+    try:
+        result = traverse(
+            note_id, max_depth=depth, relationship_filter=relationship,
+            user_id=await _optional_user_id(request),
+        )
+        return {
+            "root_id": note_id, "depth": depth,
+            "nodes": result["nodes"], "edges": result["edges"],
+            "node_count": len(result["nodes"]), "edge_count": len(result["edges"]),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/path")
+async def graph_path(
+    from_id: int,
+    to_id: int,
+    request: Request,
+    max_depth: int = Query(4, ge=1, le=6),
+):
+    """Shortest path between two Knowledge Objects (ownership scoped)."""
+    from knowledge.graph import find_path
+    from knowledge.db import execute_one
+    try:
+        path = find_path(from_id, to_id, max_depth=max_depth, user_id=await _optional_user_id(request))
+        nodes = []
+        for nid in path:
+            n = execute_one("SELECT id, uuid, title, note_type, created_at FROM notes WHERE id = ?", (nid,))
+            if n:
+                nodes.append(dict(n))
+        return {
+            "from_id":   from_id,
+            "to_id":     to_id,
+            "path_ids":  path,
+            "path_nodes": nodes,
+            "hops":      max(0, len(path) - 1),
+            "found":     len(path) > 0,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Semantic Enrichment  (K3-C Task 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/enrich/{note_id}")
+async def enrich_note(note_id: int):
+    """
+    Run the semantic enrichment engine for one note.
+    Creates canonical graph edges based on evidence.
+    """
+    try:
+        from knowledge.enrichment import enrich_note as _enrich
+        result = _enrich(note_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/enrich/orphans")
+async def enrich_orphans():
+    """
+    Enrich all orphan nodes (nodes with no outbound edges).
+    Runs synchronously — use for small graphs; prefer background scheduling for large ones.
+    """
+    try:
+        from knowledge.enrichment import enrich_all_orphans
+        return enrich_all_orphans(limit=200)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Legacy Edge Migration  (K3-C Task 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/migrate/edges/report")
+async def migration_report():
+    """
+    Report on legacy edge types not in the canonical RELATIONSHIP_REGISTRY.
+    Read-only — produces no changes.
+    """
+    try:
+        from knowledge.edge_migration import build_migration_report
+        return build_migration_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/migrate/edges/apply")
+async def migration_apply(dry_run: bool = True):
+    """
+    Apply the legacy edge migration.
+    dry_run=True (default) — reports what would change, writes nothing.
+    dry_run=False — writes changes to the database.
+    """
+    try:
+        from knowledge.edge_migration import apply_migration
+        return apply_migration(dry_run=dry_run)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Embedding Queue  (K3-C Task 6)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/embeddings/status")
+async def embedding_status():
+    """Embedding completion progress — powers SolSpire indexing panel."""
+    try:
+        from knowledge.embedding_queue import get_embedding_status
+        return get_embedding_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/embeddings/process")
+async def process_embeddings(batch_size: int = Query(50, ge=1, le=200)):
+    """Trigger an embedding batch for pending notes."""
+    try:
+        from knowledge.embedding_queue import process_pending_batch
+        return process_pending_batch(batch_size=batch_size)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

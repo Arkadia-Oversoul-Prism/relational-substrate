@@ -1,0 +1,22 @@
+{
+  "transactions": [],
+  "open_loops": [
+    {
+      "id": "loop_fixture_01",
+      "ts": 1777257944.152709,
+      "loop": "structural fixture loop one",
+      "status": "open",
+      "updated_at": 1777257944.1527095
+    },
+    {
+      "id": "loop_fixture_02",
+      "ts": 1777259344.4122684,
+      "loop": "structural fixture loop two",
+      "status": "open",
+      "updated_at": 1777259344.4122686
+    }
+  ],
+  "assets": [],
+  "balance": 0,
+  "events": []
+}

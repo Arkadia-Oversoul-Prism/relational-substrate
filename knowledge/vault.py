@@ -1,0 +1,478 @@
+"""
+Arkadia Knowledge OS — Knowledge Vault
+======================================
+Canonical CRUD for notes. Every note is Markdown on disk + a SQLite record.
+LAW III: Markdown is the human format. SQLite is the machine format.
+"""
+
+import hashlib
+import json
+import uuid as _uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal, Optional
+
+from knowledge.db import execute, execute_one, last_insert_id
+
+VAULT_ROOT = Path("vault")
+
+NoteType = Literal[
+    "note", "conversation", "research", "book", "person", "idea", "decision", "daily"
+]
+
+# Maps note_type → vault subdirectory
+TYPE_TO_DIR: dict[str, str] = {
+    "note":         "Ideas",
+    "conversation": "Projects",
+    "research":     "Research",
+    "book":         "Books",
+    "person":       "People",
+    "idea":         "Ideas",
+    "decision":     "Projects",
+    "daily":        "Daily",
+}
+
+from knowledge.relationship_types import RELATIONSHIP_TYPES  # noqa: F401 — re-exported for callers
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Note metadata header (YAML-like, written into every Markdown file)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _build_frontmatter(note: dict) -> str:
+    return f"""---
+id: {note['uuid']}
+title: {note['title']}
+created: {note['created_at']}
+updated: {note['updated_at']}
+type: {note['note_type']}
+project: {note.get('project_uuid', '')}
+thread: {note.get('thread_uuid', '')}
+participants: {note['participants']}
+tags: {note['tags']}
+links: {note['links']}
+embedding_status: {note['embedding_status']}
+source_provider: {note.get('source_provider', '')}
+---
+
+"""
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """Returns (metadata_dict, body_content)."""
+    if not text.startswith("---"):
+        return {}, text
+    end = text.find("\n---\n", 3)
+    if end == -1:
+        return {}, text
+    fm_block = text[3:end]
+    body = text[end + 5:]
+    meta: dict = {}
+    for line in fm_block.strip().splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            meta[k.strip()] = v.strip()
+    return meta, body
+
+
+def _checksum(content: str) -> str:
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public API
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_note(
+    title: str,
+    content: str,
+    note_type: NoteType = "note",
+    project_id: Optional[int] = None,
+    thread_id: Optional[int] = None,
+    participants: Optional[list[str]] = None,
+    tags: Optional[list[str]] = None,
+    links: Optional[list[str]] = None,
+    source_provider: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> dict:
+    """Create a note: write Markdown to vault, insert SQLite record."""
+    now = datetime.now(timezone.utc).isoformat()
+    note_uuid = str(_uuid.uuid4())
+    participants_json = json.dumps(participants or [])
+    tags_json = json.dumps(tags or [])
+    links_json = json.dumps(links or [])
+
+    # Resolve vault path
+    subdir = TYPE_TO_DIR.get(note_type, "Ideas")
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:64]
+    filename = f"{now[:10]}_{safe_title}_{note_uuid[:8]}.md"
+    vault_path = f"{subdir}/{filename}"
+    abs_path = VAULT_ROOT / vault_path
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+
+    uid = (user_id or "").strip() or None
+    note_row = {
+        "uuid": note_uuid,
+        "title": title,
+        "content": content,
+        "vault_path": vault_path,
+        "note_type": note_type,
+        "project_id": project_id,
+        "thread_id": thread_id,
+        "participants": participants_json,
+        "tags": tags_json,
+        "links": links_json,
+        "embedding_status": "pending",
+        "graph_nodes": "[]",
+        "checksum": _checksum(content),
+        "source_provider": source_provider,
+        "user_id": uid,
+        "created_at": now,
+        "updated_at": now,
+        # helpers for frontmatter (not stored in db directly)
+        "project_uuid": "",
+        "thread_uuid": "",
+    }
+
+    # Write Markdown
+    md = _build_frontmatter(note_row) + content
+    abs_path.write_text(md, encoding="utf-8")
+
+    # Insert SQLite record
+    execute(
+        """
+        INSERT INTO notes
+            (uuid, title, content, vault_path, note_type, project_id, thread_id,
+             participants, tags, links, embedding_status, graph_nodes, checksum,
+             source_provider, user_id, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            note_uuid, title, content, vault_path, note_type,
+            project_id, thread_id,
+            participants_json, tags_json, links_json,
+            "pending", "[]", note_row["checksum"],
+            source_provider, uid, now, now,
+        ),
+    )
+
+    note_row["id"] = last_insert_id()
+    return note_row
+
+
+def _note_owner_clause(user_id: Optional[str]) -> tuple[str, tuple]:
+    """Auth: own OR public. Anon: public only."""
+    if user_id:
+        return "(user_id = ? OR user_id IS NULL)", (user_id,)
+    return "user_id IS NULL", ()
+
+
+def get_note(note_uuid: str, user_id: Optional[str] = None) -> Optional[dict]:
+    clause, params = _note_owner_clause(user_id)
+    return execute_one(
+        f"SELECT * FROM notes WHERE uuid = ? AND {clause}",
+        (note_uuid, *params),
+    )
+
+
+def get_note_by_id(note_id: int, user_id: Optional[str] = None) -> Optional[dict]:
+    clause, params = _note_owner_clause(user_id)
+    return execute_one(
+        f"SELECT * FROM notes WHERE id = ? AND {clause}",
+        (note_id, *params),
+    )
+
+
+def _user_owns_note(note: dict, user_id: Optional[str]) -> bool:
+    """True only when note is privately stamped to this user (not public/legacy NULL)."""
+    uid = (user_id or "").strip() or None
+    if not uid:
+        return False
+    owner = (note.get("user_id") or "").strip() or None
+    return owner is not None and owner == uid
+
+
+def update_note(
+    note_uuid: str,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+    tags: Optional[list[str]] = None,
+    links: Optional[list[str]] = None,
+    embedding_status: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> Optional[dict]:
+    """Update a note. When user_id is provided, only the private owner may update."""
+    note = get_note(note_uuid, user_id=user_id)
+    if not note:
+        return None
+    if user_id is not None and not _user_owns_note(note, user_id):
+        # Visible via public clause but not privately owned — refuse mutation
+        return None
+
+    now = datetime.now(timezone.utc).isoformat()
+    updates: list[str] = ["updated_at = ?"]
+    params: list = [now]
+
+    if title is not None:
+        updates.append("title = ?"); params.append(title)
+    if content is not None:
+        updates.append("content = ?"); params.append(content)
+        updates.append("checksum = ?"); params.append(_checksum(content))
+        updates.append("embedding_status = ?"); params.append("pending")
+    if tags is not None:
+        updates.append("tags = ?"); params.append(json.dumps(tags))
+    if links is not None:
+        updates.append("links = ?"); params.append(json.dumps(links))
+    if embedding_status is not None:
+        updates.append("embedding_status = ?"); params.append(embedding_status)
+
+    params.append(note_uuid)
+    execute(f"UPDATE notes SET {', '.join(updates)} WHERE uuid = ?", tuple(params))
+
+    # Re-write Markdown on disk
+    updated = get_note(note_uuid)
+    if updated and (content is not None or title is not None):
+        abs_path = VAULT_ROOT / updated["vault_path"]
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        md = _build_frontmatter({**updated, "project_uuid": "", "thread_uuid": ""}) + (
+            content or updated["content"]
+        )
+        abs_path.write_text(md, encoding="utf-8")
+
+    return get_note(note_uuid, user_id=user_id)
+
+
+def delete_note(note_uuid: str, user_id: Optional[str] = None) -> bool:
+    """Permanently delete a privately owned note. Returns True if deleted.
+
+    - Requires authenticated user_id.
+    - Only deletes when note.user_id == user_id.
+    - Public/legacy (NULL user_id) notes cannot be deleted via this path.
+    - Removes SQLite row, graph edges, and vault Markdown when present.
+    """
+    uid = (user_id or "").strip() or None
+    if not uid:
+        return False
+    note = execute_one("SELECT * FROM notes WHERE uuid = ?", (note_uuid,))
+    if not note:
+        return False
+    if not _user_owns_note(dict(note), uid):
+        return False
+
+    note_id = note["id"]
+    vault_path = note.get("vault_path") or ""
+    try:
+        execute("DELETE FROM graph_edges WHERE source_note_id = ? OR target_note_id = ?", (note_id, note_id))
+    except Exception:
+        pass
+    try:
+        execute("DELETE FROM timeline_events WHERE note_id = ?", (note_id,))
+    except Exception:
+        pass
+    try:
+        execute("DELETE FROM chunks WHERE note_id = ?", (note_id,))
+    except Exception:
+        pass
+    execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (note_id, uid))
+
+    if vault_path:
+        try:
+            abs_path = VAULT_ROOT / vault_path
+            if abs_path.is_file():
+                abs_path.unlink()
+        except Exception:
+            pass
+    return True
+
+
+def list_notes(
+    note_type: Optional[str] = None,
+    project_id: Optional[int] = None,
+    user_id: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    conditions = []
+    params: list = []
+    if note_type:
+        conditions.append("note_type = ?"); params.append(note_type)
+    if project_id:
+        conditions.append("project_id = ?"); params.append(project_id)
+    clause, owner_params = _note_owner_clause(user_id)
+    conditions.append(clause)
+    params.extend(owner_params)
+    where = f"WHERE {' AND '.join(conditions)}"
+    params += [limit, offset]
+    return execute(
+        f"SELECT * FROM notes {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+        tuple(params),
+    )
+
+
+def add_graph_edge(source_id: int, target_id: int, relationship: str, weight: float = 1.0) -> None:
+    """
+    Canonical graph edge write — delegates to knowledge.graph.add_edge.
+    LAW I: One implementation. No duplicate logic.
+    """
+    from knowledge.graph import add_edge
+    add_edge(source_id, target_id, relationship, weight)
+
+
+def get_graph_neighbours(note_id: int, max_depth: int = 2) -> list[dict]:
+    """BFS traversal — delegates to knowledge.graph.traverse."""
+    from knowledge.graph import traverse
+    result = traverse(note_id, max_depth=max_depth)
+    return result["nodes"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Project helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_project(
+    name: str,
+    description: str = "",
+    tags: Optional[list[str]] = None,
+    user_id: Optional[str] = None,
+) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    proj_uuid = str(_uuid.uuid4())
+    tags_json = json.dumps(tags or [])
+    uid = (user_id or "").strip() or None
+    execute(
+        "INSERT INTO projects (uuid, name, description, tags, user_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+        (proj_uuid, name, description, tags_json, uid, now, now),
+    )
+    return {"uuid": proj_uuid, "name": name, "description": description, "user_id": uid, "id": last_insert_id()}
+
+
+def _project_owner_clause(user_id: Optional[str]) -> tuple[str, tuple]:
+    if user_id:
+        return "(user_id = ? OR user_id IS NULL)", (user_id,)
+    return "user_id IS NULL", ()
+
+
+def get_project(name_or_uuid: str, user_id: Optional[str] = None) -> Optional[dict]:
+    clause, params = _project_owner_clause(user_id)
+    return execute_one(
+        f"SELECT * FROM projects WHERE (uuid = ? OR name = ?) AND {clause}",
+        (name_or_uuid, name_or_uuid, *params),
+    )
+
+
+def list_projects(user_id: Optional[str] = None) -> list[dict]:
+    clause, params = _project_owner_clause(user_id)
+    return execute(
+        f"SELECT * FROM projects WHERE {clause} ORDER BY updated_at DESC",
+        params,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Thread helpers
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# A thread is the canonical conversation grouping in the Knowledge OS. The
+# Oracle/Arkana runtime keys conversational continuity on a stable external
+# session_id (user-scoped, interface-independent). get_or_create_thread maps
+# that external session_id onto a threads row so that archived conversation
+# notes and the context engine's thread_id filter describe the same
+# longitudinal conversation regardless of which surface (Oracle Chat,
+# ReasoMate, NovaNet) initiated the turn.
+
+def create_thread(
+    title: str,
+    user_id: Optional[str] = None,
+    project_id: Optional[int] = None,
+    thread_uuid: Optional[str] = None,
+) -> dict:
+    """Create a first-class conversation thread in the canonical Knowledge OS."""
+    now = datetime.now(timezone.utc).isoformat()
+    uid = (user_id or "").strip() or None
+    tid = (thread_uuid or "").strip() or str(_uuid.uuid4())
+    execute(
+        "INSERT INTO threads (uuid, project_id, title, user_id, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+        (tid, project_id, (title or "Untitled conversation")[:200], uid, now, now),
+    )
+    row = execute_one("SELECT * FROM threads WHERE id = ?", (last_insert_id(),))
+    return row or {}
+
+
+def list_threads(
+    user_id: Optional[str],
+    project_id: Optional[int] = None,
+) -> list[dict]:
+    """List threads owned by a user, optionally narrowed to one project."""
+    uid = (user_id or "").strip() or None
+    if not uid:
+        return []
+    if project_id is None:
+        rows = execute(
+            "SELECT * FROM threads WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+            (uid,),
+        )
+    else:
+        rows = execute(
+            "SELECT * FROM threads WHERE user_id = ? AND project_id = ? ORDER BY updated_at DESC, id DESC",
+            (uid, project_id),
+        )
+    return rows or []
+
+
+def get_thread(thread_uuid: str, user_id: Optional[str] = None) -> Optional[dict]:
+    """Read one first-class thread by UUID, enforcing private ownership."""
+    if not thread_uuid or not thread_uuid.strip():
+        return None
+    uid = (user_id or "").strip() or None
+    if uid:
+        return execute_one(
+            "SELECT * FROM threads WHERE uuid = ? AND user_id = ?",
+            (thread_uuid.strip(), uid),
+        )
+    return None
+
+
+def get_or_create_thread(
+    session_id: str,
+    title: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> Optional[int]:
+    """Return the threads.id for ``session_id``, creating it if necessary.
+
+    When ``user_id`` is provided, it is stamped on new threads and backfilled
+    onto legacy NULL-owner threads that match this session_id.
+    """
+    if not session_id or not session_id.strip():
+        return None
+    sid = session_id.strip()
+    uid = (user_id or "").strip() or None
+    existing = execute_one("SELECT id, user_id FROM threads WHERE uuid = ?", (sid,))
+    if existing:
+        if uid and not existing.get("user_id"):
+            execute("UPDATE threads SET user_id = ? WHERE id = ?", (uid, existing["id"]))
+        return existing["id"]
+    now = datetime.now(timezone.utc).isoformat()
+    execute(
+        "INSERT INTO threads (uuid, title, user_id, created_at, updated_at) VALUES (?,?,?,?,?)",
+        (sid, (title or f"Arkana session {sid[:12]}")[:200], uid, now, now),
+    )
+    return last_insert_id()
+
+
+def get_thread_id(session_id: str, user_id: Optional[str] = None) -> Optional[int]:
+    """Look up an existing thread id without creating one (read-only).
+
+    When ``user_id`` is provided, only return a thread owned by that user
+    (or a legacy thread with NULL user_id that matches session_id).
+    """
+    if not session_id or not session_id.strip():
+        return None
+    uid = (user_id or "").strip() or None
+    if uid:
+        row = execute_one(
+            "SELECT id FROM threads WHERE uuid = ? AND (user_id = ? OR user_id IS NULL)",
+            (session_id.strip(), uid),
+        )
+    else:
+        row = execute_one("SELECT id FROM threads WHERE uuid = ?", (session_id.strip(),))
+    return row["id"] if row else None

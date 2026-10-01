@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0.0",
+  "continuation_id": "cont-fixture-0000",
+  "generated_at": "2026-01-01T00:00:00+00:00",
+  "anchor": {
+    "clean": true,
+    "head_sha": "529cf1f6485729434535637e6e67fe54e3f54420",
+    "origin_sha": "529cf1f6485729434535637e6e67fe54e3f54420"
+  },
+  "authorization": {
+    "current_pass_authorized": false,
+    "state": "NONE",
+    "note": "MEMORY != AUTHORIZATION. A new PassSpec is required to modify the repository."
+  },
+  "objective": "Structural fixture. Replace with a real continuation record.",
+  "scope": {
+    "allowed_paths": [],
+    "non_goals": []
+  },
+  "plan": [],
+  "proposal": null,
+  "execution": null,
+  "publication": null,
+  "decisions": [],
+  "unresolved": [],
+  "next_action": {
+    "state": "NO ACTIVE WORKSTREAM",
+    "authorized_action": "None. Provide a PassSpec to authorize repository mutation.",
+    "forbidden_actions": [
+      "repository mutation without an authorization record"
+    ],
+    "completion_condition": "A human issues a PassSpec."
+  },
+  "last_pass": null,
+  "current_session": null,
+  "previous_session": null,
+  "repository": null
+}

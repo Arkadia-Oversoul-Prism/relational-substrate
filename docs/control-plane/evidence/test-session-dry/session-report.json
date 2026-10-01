@@ -1,0 +1,38 @@
+{
+  "status": "READY_FOR_REVIEW",
+  "trajectory_id": "TEST-TRAJECTORY",
+  "repository_sha": "ref: refs/heads/main",
+  "session_id": "test-session-dry",
+  "dry_run": true,
+  "next_move": {
+    "id": "T01",
+    "name": "bootstrap",
+    "status": "pending",
+    "depends_on": [],
+    "spec": "spec.md",
+    "packet": null
+  },
+  "blockers": [],
+  "plan": {
+    "move_id": "T01",
+    "spec_path": "spec.md",
+    "spec_loaded": false,
+    "dry_run": true,
+    "actions": [
+      "LOAD trajectory + move spec",
+      "ORIENT repository state",
+      "PLAN minimum implementation within move scope",
+      "EXECUTE only if dry_run=false and human authorized",
+      "VERIFY tests",
+      "EVIDENCE + STOP at review (no merge, no deploy)"
+    ],
+    "spec_preview": "",
+    "forbidden": [
+      "merge",
+      "production_deploy",
+      "trajectory_rewrite",
+      "autonomous_next_move"
+    ]
+  },
+  "evidence_path": null
+}
