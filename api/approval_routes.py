@@ -27,6 +27,45 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+#: The substrate's governance layer (governance/roles.json) grants the `Govern`
+#: permission — "approve or modify governance definitions and policies" — to the
+#: Flamekeeper role only; the Weaver is explicitly "non-authoritative for
+#: governance". An approval is a governance decision, so only a principal holding
+#: that authority may make one. This is not an invented role: it is the model the
+#: substrate already declares, and it is enforced here rather than assumed.
+GOVERN_ROLE = "Flamekeeper"
+SOVEREIGN_ACCESS_LEVEL = 3
+
+
+def _has_govern_authority(user: dict) -> bool:
+    """True iff *user* may decide approvals.
+
+    Authority comes from the governance model, not from being authenticated:
+    authentication establishes *who* is calling; it does not establish
+    entitlement to approve a consequential operation. Two encodings are
+    accepted — the canonical `Flamekeeper` role, and `access_level >= 3`, which
+    is the identity system's sovereign tier (see api.auth.require_sovereign).
+    """
+    if (user.get("role") or "").strip() == GOVERN_ROLE:
+        return True
+    try:
+        return int(user.get("access_level", 0)) >= SOVEREIGN_ACCESS_LEVEL
+    except (TypeError, ValueError):
+        return False
+
+
+def _require_govern_authority(user: dict) -> None:
+    if not _has_govern_authority(user):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Approval authority required: the `Govern` permission is held by "
+                "the Flamekeeper role. Authentication alone does not entitle a "
+                "principal to approve a consequential operation."
+            ),
+        )
+
+
 def queue_approval(
     tool_name: str, payload: dict, description: str, subject_ref: str | None = None
 ) -> str:
@@ -76,14 +115,17 @@ async def api_request_approval(request: Request, user: dict = Depends(require_au
 
 @router.get("/api/approvals")
 async def api_list_approvals(status: str | None = None, user: dict = Depends(require_auth)):
-    """List approvals visible to the caller (its own requests).
+    """List approvals visible to the caller.
 
-    NOTE (P1): retrieval is currently scoped to the requesting subject. A
-    reviewer view that spans subjects requires an approver-authority tier that
-    does not yet exist; until then, callers only see approvals they originated.
+    Ordinary callers see only the approvals they originated. A principal with
+    `Govern` authority (Flamekeeper) sees every pending approval — a reviewer
+    must be able to see what it is entitled to decide.
     """
     with APPROVAL_LOCK:
-        items = [a for a in PENDING_APPROVALS.values() if a.get("subject_ref") == user["uid"]]
+        if _has_govern_authority(user):
+            items = list(PENDING_APPROVALS.values())
+        else:
+            items = [a for a in PENDING_APPROVALS.values() if a.get("subject_ref") == user["uid"]]
     if status:
         items = [a for a in items if a["status"] == status]
     return {"approvals": sorted(items, key=lambda a: a["created_at"], reverse=True)}
@@ -96,7 +138,11 @@ async def api_approve(approval_id: str, user: dict = Depends(require_auth)):
     Execution is the caller's act, performed at POST /api/tools/{tool_name}/run
     with this approval_id. Separating the decision from the execution keeps the
     recorded authorization distinct from the permitted action.
+
+    Requires `Govern` authority: deciding an approval is a governance act, and
+    being authenticated is not the same as being entitled to approve.
     """
+    _require_govern_authority(user)
     with APPROVAL_LOCK:
         approval = PENDING_APPROVALS.get(approval_id)
         if not approval:
@@ -113,6 +159,8 @@ async def api_approve(approval_id: str, user: dict = Depends(require_auth)):
 
 @router.post("/api/approvals/{approval_id}/reject")
 async def api_reject(approval_id: str, user: dict = Depends(require_auth)):
+    """Record a rejection. Requires `Govern` authority, as with approval."""
+    _require_govern_authority(user)
     with APPROVAL_LOCK:
         approval = PENDING_APPROVALS.get(approval_id)
         if not approval:

@@ -59,16 +59,31 @@ def as_user():
     """Override the auth dependency with a mutable identity.
 
     Anonymous tests do not use this fixture, so they hit the real dependency.
+    The default identity is an ordinary authenticated principal (Guest) with no
+    approval authority — approving is a separate, governed act.
     """
-    current = {"uid": "test-subject"}
+    current = {"uid": "test-subject", "role": "Guest", "access_level": 0}
     app.dependency_overrides[require_auth] = lambda: {
         "uid": current["uid"],
         "email": f"{current['uid']}@example.com",
-        "access_level": 0,
-        "role": "Guest",
+        "access_level": current["access_level"],
+        "role": current["role"],
     }
     yield current
     app.dependency_overrides.pop(require_auth, None)
+
+
+def _approve(client, as_user, approval_id, *, authorized=True):
+    """Decide an approval as an authorized Flamekeeper, then drop back to the
+    ordinary caller. Requester and approver are deliberately distinct."""
+    if authorized:
+        as_user["role"] = "Flamekeeper"
+        as_user["access_level"] = 3
+    try:
+        return client.post(f"/api/approvals/{approval_id}/approve")
+    finally:
+        as_user["role"] = "Guest"
+        as_user["access_level"] = 0
 
 
 @pytest.fixture(autouse=True)
@@ -149,7 +164,7 @@ def test_pending_approval_is_not_yet_spendable(client, as_user):
 
 def test_approval_for_other_tool_is_denied(client, as_user):
     aid = _request_approval(client, "execute_shell", {"command": "whoami"})
-    client.post(f"/api/approvals/{aid}/approve")
+    _approve(client, as_user, aid)
     r = client.post(
         RUN.format("write_file"),
         json={"payload": {"path": "knowledge/x.txt", "content": "x"}, "approval_id": aid},
@@ -161,7 +176,7 @@ def test_approval_for_other_tool_is_denied(client, as_user):
 
 def test_approved_gated_tool_runs_once(client, as_user):
     aid = _request_approval(client, "execute_shell", {"command": "whoami"})
-    assert client.post(f"/api/approvals/{aid}/approve").status_code == 200
+    assert _approve(client, as_user, aid).status_code == 200
 
     r = client.post(
         RUN.format("execute_shell"),
@@ -181,7 +196,7 @@ def test_approved_gated_tool_runs_once(client, as_user):
 def test_approve_decision_does_not_execute(client, as_user):
     """Approving records a decision; execution is a separate, explicit act."""
     aid = _request_approval(client, "execute_shell", {"command": "whoami"})
-    body = client.post(f"/api/approvals/{aid}/approve").json()
+    body = _approve(client, as_user, aid).json()
     assert body["status"] == "approved"
     assert "result" not in body
 
@@ -192,11 +207,59 @@ def test_non_gated_tool_needs_no_approval(client, as_user):
     assert r.json()["results"][0]["status"] == "success"
 
 
+# ── 4b. Approval authority: authentication != entitlement to approve ──────────
+#
+# The substrate's governance layer (governance/roles.json) grants `Govern` to
+# the Flamekeeper only; the Weaver is "non-authoritative for governance". Being
+# authenticated establishes identity, not the right to decide an approval.
+
+def test_ordinary_principal_cannot_approve(client, as_user):
+    """A Guest may request an approval but may not decide it — not even its own.
+    Authentication and subject attribution do not confer approval authority."""
+    aid = _request_approval(client, "execute_shell", {"command": "whoami"})
+    r = client.post(f"/api/approvals/{aid}/approve")
+    assert r.status_code == 403
+    assert "Approval authority required" in r.json()["detail"]
+
+
+def test_ordinary_principal_cannot_reject(client, as_user):
+    aid = _request_approval(client, "execute_shell", {"command": "whoami"})
+    assert client.post(f"/api/approvals/{aid}/reject").status_code == 403
+
+
+def test_sovereign_access_level_may_approve(client, as_user):
+    """The identity system's sovereign tier (access_level >= 3) also holds
+    approval authority — the same tier api.auth.require_sovereign gates on."""
+    aid = _request_approval(client, "execute_shell", {"command": "whoami"})
+    as_user["access_level"] = 3
+    try:
+        assert client.post(f"/api/approvals/{aid}/approve").status_code == 200
+    finally:
+        as_user["access_level"] = 0
+
+
+def test_flamekeeper_reviewer_sees_all_pending_approvals(client, as_user):
+    """A reviewer must be able to see what it is entitled to decide."""
+    _request_approval(client, "execute_shell", {"command": "whoami"})
+    as_user["uid"] = "another-requester"
+    _request_approval(client, "execute_shell", {"command": "whoami"})
+
+    # As the second requester, only its own request is visible.
+    assert len(client.get("/api/approvals").json()["approvals"]) == 1
+
+    # As Flamekeeper, both are visible.
+    as_user["role"] = "Flamekeeper"
+    try:
+        assert len(client.get("/api/approvals").json()["approvals"]) == 2
+    finally:
+        as_user["role"] = "Guest"
+
+
 # ── 5. Ownership isolation ────────────────────────────────────────────────────
 
 def test_approval_is_not_spendable_by_another_subject(client, as_user):
     aid = _request_approval(client, "execute_shell", {"command": "whoami"})
-    client.post(f"/api/approvals/{aid}/approve")
+    _approve(client, as_user, aid)
 
     as_user["uid"] = "other-subject"
     r = client.post(
@@ -219,7 +282,7 @@ def test_approval_listing_is_subject_scoped(client, as_user):
 def test_shell_allowlist_still_holds_after_approval(client, as_user):
     """The perimeter change must not weaken the inner allowlist."""
     aid = _request_approval(client, "execute_shell", {"command": "python3 -c 'print(1)'"})
-    client.post(f"/api/approvals/{aid}/approve")
+    _approve(client, as_user, aid)
     r = client.post(
         RUN.format("execute_shell"),
         json={"payload": {"command": "python3 -c 'print(1)'"}, "approval_id": aid},
